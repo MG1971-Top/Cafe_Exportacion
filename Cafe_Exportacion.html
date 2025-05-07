@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión de Tickets - Exportación de Café</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background-color: #f3f2ed; color: #3e3e3e; }
+    .card { margin-bottom: 1rem; }
+    .bg-nature { background-color: #6b4f2d; color: white; }
+    .form-section { margin-top: 2rem; }
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <h1 class="text-center mb-4">Gestión de Tickets - Exportación de Café</h1>
+
+  <!-- Login/Register -->
+  <div id="auth-section">
+    <input type="email" id="email" placeholder="Correo electrónico" class="form-control mb-2">
+    <input type="password" id="password" placeholder="Contraseña" class="form-control mb-2">
+    <button class="btn btn-success" onclick="login()">Iniciar Sesión</button>
+    <button class="btn btn-secondary" onclick="register()">Registrarse</button>
+    <button class="btn btn-link" onclick="recoverPassword()">¿Olvidaste tu contraseña?</button>
+  </div>
+
+  <!-- Ticket Form -->
+  <div class="form-section" id="ticket-form" style="display:none">
+    <h3>Crear Nuevo Ticket</h3>
+    <input type="text" id="titulo" class="form-control mb-2" placeholder="Título del ticket">
+    <textarea id="descripcion" class="form-control mb-2" placeholder="Descripción"></textarea>
+    <select id="prioridad" class="form-control mb-2">
+      <option value="Alta">Alta</option>
+      <option value="Media">Media</option>
+      <option value="Baja">Baja</option>
+    </select>
+    <input type="text" id="cliente" class="form-control mb-2" placeholder="Nombre del Cliente">
+    <input type="number" id="kilos" class="form-control mb-2" placeholder="Kilos de Café">
+    <input type="text" id="producto" class="form-control mb-2" placeholder="Tipo de Producto">
+    <input type="text" id="pais" class="form-control mb-2" placeholder="País de destino">
+    <button class="btn btn-primary" onclick="crearTicket()">Guardar Ticket</button>
+  </div>
+
+  <!-- Ticket List -->
+  <div class="form-section">
+    <h3>Tickets</h3>
+    <div id="ticket-list"></div>
+    <button class="btn btn-success" onclick="exportarExcel()">Exportar Todo a Excel</button>
+  </div>
+
+  <!-- Gráfica -->
+  <div class="form-section">
+    <h3>Estadísticas de Prioridad</h3>
+    <canvas id="chart-prioridad"></canvas>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDCc1dpKa0shW4GQ_ZuvEVIQagXfzdvhss",
+    authDomain: "cafe-exportacion-tickets.firebaseapp.com",
+    projectId: "cafe-exportacion-tickets",
+    storageBucket: "cafe-exportacion-tickets.appspot.com",
+    messagingSenderId: "707080937283",
+    appId: "1:707080937283:web:c555dbe3bd28e1d5ad99f6"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  window.login = async function () {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      alert("Error al iniciar sesión: " + e.message);
+    }
+  }
+
+  window.register = async function () {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      alert("Usuario registrado correctamente");
+    } catch (e) {
+      alert("Error al registrar: " + e.message);
+    }
+  }
+
+  window.recoverPassword = async function () {
+    const email = document.getElementById("email").value;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert("Correo de recuperación enviado");
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  }
+
+  window.crearTicket = async function () {
+    const ticket = {
+      folio: 'FOLIO-' + Date.now(),
+      titulo: document.getElementById("titulo").value.trim(),
+      descripcion: document.getElementById("descripcion").value.trim(),
+      prioridad: document.getElementById("prioridad").value,
+      cliente: document.getElementById("cliente").value.trim(),
+      kilos: parseFloat(document.getElementById("kilos").value) || 0,
+      producto: document.getElementById("producto").value.trim(),
+      pais: document.getElementById("pais").value.trim(),
+      estado: "Abierto",
+      fecha: new Date().toISOString()
+    };
+
+    if (!ticket.titulo || !ticket.descripcion || !ticket.cliente || !ticket.producto || !ticket.pais) {
+      alert("Por favor, complete todos los campos obligatorios.");
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "tickets"), ticket);
+      alert("Ticket creado exitosamente");
+      mostrarTickets();
+    } catch (e) {
+      alert("Error al guardar ticket: " + e.message);
+    }
+  }
+
+  async function mostrarTickets() {
+    try {
+      const querySnapshot = await getDocs(collection(db, "tickets"));
+      const contenedor = document.getElementById("ticket-list");
+      contenedor.innerHTML = "";
+      const conteo = { Alta: 0, Media: 0, Baja: 0 };
+
+      querySnapshot.forEach(doc => {
+        const t = doc.data();
+        if (!t.prioridad || !(t.prioridad in conteo)) return;
+        conteo[t.prioridad]++;
+        contenedor.innerHTML += `
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">${t.folio || 'Sin folio'} - ${t.titulo || 'Sin título'}</h5>
+              <p>${t.descripcion || ''}</p>
+              <p><strong>Cliente:</strong> ${t.cliente || ''}, <strong>País:</strong> ${t.pais || ''}, <strong>Kgs:</strong> ${t.kilos || 0}, <strong>Producto:</strong> ${t.producto || ''}</p>
+              <p><strong>Prioridad:</strong> ${t.prioridad || ''} | <strong>Estado:</strong> ${t.estado || ''}</p>
+              <button class="btn btn-sm btn-outline-danger" onclick="descargarPDF('${t.folio}', '${t.titulo}', '${t.descripcion}')"><i class="fas fa-file-pdf"></i> PDF</button>
+            </div>
+          </div>`;
+      });
+      dibujarGrafica(conteo);
+    } catch (error) {
+      alert("Error al mostrar los tickets: " + error.message);
+    }
+  }
+
+  function dibujarGrafica(data) {
+    const ctx = document.getElementById('chart-prioridad');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ["Alta", "Media", "Baja"],
+        datasets: [{
+          label: 'Cantidad de Tickets',
+          data: [data.Alta, data.Media, data.Baja],
+          backgroundColor: ['#d9534f', '#f0ad4e', '#5bc0de']
+        }]
+      },
+      options: { responsive: true }
+    });
+  }
+
+  function descargarPDF(folio, titulo, descripcion) {
+    const win = window.open('', '', 'height=700,width=700');
+    win.document.write(`<h1>${folio}</h1><p>${titulo}</p><p>${descripcion}</p>`);
+    win.print();
+  }
+
+  window.exportarExcel = function () {
+    alert('Función de exportar a Excel pendiente de implementación');
+  }
+
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      document.getElementById("auth-section").style.display = 'none';
+      document.getElementById("ticket-form").style.display = 'block';
+      mostrarTickets();
+    }
+  });
+</script>
+</body>
+</html>
